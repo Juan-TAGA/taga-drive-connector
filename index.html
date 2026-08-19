@@ -259,7 +259,7 @@ window.addEventListener('load', () => {
     client_id: CLIENT_ID,
     scope: SCOPE,
     callback: handleTokenResponse
-  }).then(tc => { tokenClient = tc; });
+  })= google.accounts.oauth2.initTokenClient => { tokenClient = tc; });
   
   document.getElementById('authBtn').onclick = authorize;
 });

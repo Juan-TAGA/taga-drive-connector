@@ -255,16 +255,12 @@ function authorize() {
 }
 
 window.addEventListener('load', () => {
-  google.accounts.oauth2.initTokenClient({
+  tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPE,
     callback: handleTokenResponse
-  tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPE,
-        callback: handleTokenResponse
   });
-  
+
   document.getElementById('authBtn').onclick = authorize;
 });
 </script>

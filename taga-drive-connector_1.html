@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://accounts.google.com/gsi/client"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #0B0E14; --panel: #12161F; --border: #232838;
+      --text: #E8EAED; --muted: #8891A3; --teal: #3FBFAD; --amber: #E8A33D; --rose: #E2607A;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; }
+    #root { background: var(--bg); color: var(--text); font-family: var(--sans); padding: 20px; }
+    .header { margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    .title { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+    .subtitle { font-size: 12px; color: var(--muted); margin: 0; }
+    .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--rose); border: 1px solid var(--rose); padding: 3px 8px; border-radius: 4px; margin-top: 8px; font-family: var(--mono); }
+    .auth-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; text-align: center; }
+    .btn { background: var(--teal); color: #05201C; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn:hover { opacity: 0.9; }
+    .progress-container { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .progress-label { font-size: 12px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+    .progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+    .progress-fill { height: 100%; background: var(--teal); transition: width 0.3s; }
+    .status-text { font-size: 12px; color: var(--text); font-family: var(--mono); }
+    .files-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .file-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+    .file-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; word-break: break-word; }
+    .file-info { font-size: 11px; color: var(--muted); margin: 4px 0; font-family: var(--mono); }
+    .success { color: var(--teal); }
+    .error { color: var(--rose); }
+    .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+    .summary-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .summary-title { font-size: 12px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+    .summary-stat { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; font-family: var(--mono); }
+    .stat-label { color: var(--muted); }
+    .stat-value { color: var(--teal); font-weight: 600; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="header">
+    <h1 class="title">Taga Drive Connector</h1>
+    <p class="subtitle">Carga automática de archivos Excel desde Google Drive</p>
+    <div class="badge">Privado · Lectura</div>
+  </div>
+
+  <div id="authPanel" class="auth-panel">
+    <p style="margin: 0 0 12px; font-size: 14px; color: var(--text);">Conecta con Google Drive para cargar tus 12 archivos</p>
+    <button class="btn" id="authBtn">Conectar Google Drive</button>
+    <p style="margin: 12px 0 0; font-size: 12px; color: var(--muted);">Se abrirá un popup solicitando permiso de lectura en tu carpeta "Mi portatil"</p>
+  </div>
+
+  <div id="progressPanel" class="progress-container" style="display: none;">
+    <div class="progress-label">Descargando y procesando archivos</div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width: 0%;"></div></div>
+    <div class="status-text" id="statusText">Iniciando…</div>
+  </div>
+
+  <div id="filesPanel" style="display: none;">
+    <div class="summary-panel" style="margin-bottom: 16px;">
+      <div class="summary-title">Resumen</div>
+      <div class="summary-stat">
+        <span class="stat-label">Archivos cargados:</span>
+        <span class="stat-value" id="fileCount">0</span>
+      </div>
+      <div class="summary-stat">
+        <span class="stat-label">Total de filas:</span>
+        <span class="stat-value" id="rowCount">0</span>
+      </div>
+      <div class="summary-stat">
+        <span class="stat-label">Tamaño total:</span>
+        <span class="stat-value" id="sizeCount">0 MB</span>
+      </div>
+    </div>
+    <div class="files-grid" id="filesGrid"></div>
+  </div>
+
+  <div id="emptyState" class="empty">
+    Aquí aparecerán los archivos cargados
+  </div>
+</div>
+
+<script>
+const CLIENT_ID = '918549989387-avc10kj4969uqcoq71k849lmo0vqctbe.apps.googleusercontent.com';
+const FOLDER_ID = '1VDfwZFOzFmsHIfs5mkORjiDsBdtWEWCk';
+const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+
+let accessToken = null;
+let loadedFiles = [];
+let tokenClient = null;
+
+function initGoogleClient() {
+  window.google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPE,
+    callback: handleTokenResponse
+  });
+}
+
+function handleTokenResponse(response) {
+  if (response.error) {
+    showError('Error de autorización: ' + response.error);
+    return;
+  }
+  accessToken = response.access_token;
+  document.getElementById('authPanel').style.display = 'none';
+  document.getElementById('progressPanel').style.display = 'block';
+  loadFilesFromDrive();
+}
+
+function updateProgress(current, total, message) {
+  const pct = Math.round((current / total) * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('statusText').textContent = message;
+}
+
+async function loadFilesFromDrive() {
+  try {
+    updateProgress(0, 1, 'Listando carpetas…');
+    const folders = await listFolders();
+    updateProgress(1, folders.length + 1, `Encontradas ${folders.length} carpetas. Descargando archivos…`);
+    
+    let fileIndex = 0;
+    for (const folder of folders) {
+      updateProgress(fileIndex, folders.length, `Procesando: ${folder.name}…`);
+      const files = await listFilesInFolder(folder.id);
+      for (const file of files) {
+        const content = await downloadFile(file.id);
+        const parsed = parseExcel(file.name, content);
+        loadedFiles.push({
+          name: file.name,
+          folder: folder.name,
+          ...parsed
+        });
+      }
+      fileIndex++;
+    }
+    
+    updateProgress(folders.length, folders.length, 'Completado');
+    await saveAndDisplay();
+    
+  } catch (error) {
+    showError('Error: ' + error.message);
+  }
+}
+
+async function listFolders() {
+  const query = `trashed=false and '${FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&pageSize=100&fields=files(id,name)&orderBy=name`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.files || [];
+}
+
+async function listFilesInFolder(folderId) {
+  const query = `trashed=false and '${folderId}' in parents and (mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType='application/vnd.ms-excel')`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&pageSize=10&fields=files(id,name,size)`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.files || [];
+}
+
+async function downloadFile(fileId) {
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!resp.ok) throw new Error(`Download failed: ${resp.statusText}`);
+  return resp.arrayBuffer();
+}
+
+function parseExcel(filename, arrayBuffer) {
+  try {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const sheets = workbook.SheetNames;
+    let totalRows = 0;
+    const sheetStats = [];
+    
+    for (const sheet of sheets) {
+      const ws = workbook.Sheets[sheet];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: null });
+      totalRows += json.length;
+      sheetStats.push({ name: sheet, rows: json.length });
+    }
+    
+    return { sheets, totalRows, sheetStats, size: (arrayBuffer.byteLength / 1024 / 1024).toFixed(2) };
+  } catch (e) {
+    return { sheets: [], totalRows: 0, sheetStats: [], size: 0, error: e.message };
+  }
+}
+
+async function saveAndDisplay() {
+  const summary = {
+    count: loadedFiles.length,
+    totalRows: loadedFiles.reduce((s, f) => s + f.totalRows, 0),
+    totalSize: loadedFiles.reduce((s, f) => parseFloat(f.size || 0), 0).toFixed(2),
+    files: loadedFiles.map(f => ({ name: f.name, folder: f.folder, rows: f.totalRows, sheets: f.sheets.length }))
+  };
+  
+  try {
+    await window.storage.set('taga-drive-files', JSON.stringify(loadedFiles), false);
+    await window.storage.set('taga-drive-summary', JSON.stringify(summary), false);
+  } catch (e) {
+    console.warn('Storage unavailable:', e.message);
+  }
+  
+  displayResults(summary);
+  
+  if (typeof sendPrompt !== 'undefined') {
+    sendPrompt(`✅ Cargue completado: ${summary.count} archivos, ${summary.totalRows.toLocaleString('es-MX')} filas totales. Listo para consultar.`);
+  }
+}
+
+function displayResults(summary) {
+  document.getElementById('progressPanel').style.display = 'none';
+  document.getElementById('filesPanel').style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+  
+  document.getElementById('fileCount').textContent = summary.count;
+  document.getElementById('rowCount').textContent = summary.totalRows.toLocaleString('es-MX');
+  document.getElementById('sizeCount').textContent = summary.totalSize + ' MB';
+  
+  const grid = document.getElementById('filesGrid');
+  grid.innerHTML = '';
+  
+  for (const file of summary.files) {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.innerHTML = `
+      <div class="file-name" title="${file.name}">${file.name}</div>
+      <div class="file-info"><span style="color: var(--muted);">📁</span> ${file.folder}</div>
+      <div class="file-info"><span class="success">✓</span> ${file.rows.toLocaleString('es-MX')} filas</div>
+      <div class="file-info"><span style="color: var(--amber);">📊</span> ${file.sheets} hoja${file.sheets > 1 ? 's' : ''}</div>
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function showError(message) {
+  document.getElementById('progressPanel').style.display = 'none';
+  document.getElementById('authPanel').style.display = 'block';
+  document.getElementById('authPanel').innerHTML = `
+    <p style="color: var(--rose); margin: 0 0 12px; font-size: 14px;">${message}</p>
+    <button class="btn" id="authBtn" onclick="authorize()">Reintentar</button>
+  `;
+}
+
+function authorize() {
+  if (tokenClient) {
+    tokenClient.requestAccessToken();
+  }
+}
+
+window.addEventListener('load', () => {
+  google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPE,
+    callback: handleTokenResponse
+  }).then(tc => { tokenClient = tc; });
+  
+  document.getElementById('authBtn').onclick = authorize;
+});
+</script>
+</body>
+</html>
